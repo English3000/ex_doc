@@ -230,8 +230,8 @@ defmodule Mix.Tasks.Docs do
   @switches [
     canonical: :string,
     formatter: :keep,
-    language: :string,
-    output: :string
+    language:  :string,
+    output:    :string
   ]
 
   @aliases [n: :canonical, f: :formatter, o: :output]
@@ -240,12 +240,13 @@ defmodule Mix.Tasks.Docs do
   def run(args, config \\ Mix.Project.config(), generator \\ &ExDoc.generate_docs/3) do
     Mix.Task.run("compile")
 
-    {cli_opts, args, _} = OptionParser.parse(args, aliases: @aliases, switches: @switches)
+    {cli_opts, args_, _} = OptionParser.parse(args, aliases: @aliases, switches: @switches)
 
-    if args != [], do: Mix.raise("Extraneous arguments on the command line")
+    # TODO
+    if args_ != [], do: Mix.raise("Extraneous arguments on the command line: #{inspect(args_)}")
 
-    project = to_string(config[:name] || config[:app])
-    version = config[:version] || "dev"
+    project = Keyword.get(config, :name, Keyword.get(config, :app)) |> to_string()
+    version = Keyword.get(config, :version, "dev")
     options = get_docs_opts(config, cli_opts) # def'd after `get_formatters/1`
 
     for formatter <- get_formatters(options) do
@@ -258,9 +259,11 @@ defmodule Mix.Tasks.Docs do
     end
   end
 
+  # TODO
+  # At most, returns: ["epub", "html"]
   defp get_formatters(options) do
     case Keyword.get_values(options, :formatter) do
-      []     -> options[:formatters] || [ExDoc.Config.default_formatter()]
+      []     -> Keyword.get(options, :formatters, [ExDoc.Config.default_formatter()])
       values -> values
     end
   end
@@ -276,7 +279,7 @@ defmodule Mix.Tasks.Docs do
   # |> normalize_deps()
   #
   defp get_docs_opts(config, cli_opts) do
-    docs = config[:docs]
+    docs = Keyword.get(config, :docs)
 
     cond do
       is_function(docs, 0) -> docs.()
@@ -287,6 +290,7 @@ defmodule Mix.Tasks.Docs do
     |> normalize_urls(config, [:source_url, :homepage_url]) # accepted at root level config
   end
 
+  # TODO
   defp normalize_urls(options, config, keys) do
     Enum.reduce(keys, options, fn key, options_ ->
       case Keyword.get(config, key) do
@@ -314,7 +318,7 @@ defmodule Mix.Tasks.Docs do
   end
 
   defp normalize_main(options) do
-    main = options[:main]
+    main = Keyword.get(options, :main)
 
     cond do
       is_nil(main)    -> Keyword.delete(options, :main)
@@ -325,12 +329,13 @@ defmodule Mix.Tasks.Docs do
   end
 
   defp normalize_deps(options) do
-    deps = for {app, doc} <- Keyword.merge( get_deps(), Keyword.get(options, :deps, []) ),
-               lib_dir = :code.lib_dir(app),
-               is_list(lib_dir),
+    deps  = Keyword.get(options, :deps, [])
+    deps_ = for {app, doc} <- Keyword.merge(get_deps(), deps),
+                lib_dir = :code.lib_dir(app),
+                is_list(lib_dir),
                  do: {List.to_string(lib_dir), doc}
 
-    Keyword.put(options, :deps, deps)
+    Keyword.put(options, :deps, deps_)
     # call stack returns to `run/1`
   end
 
