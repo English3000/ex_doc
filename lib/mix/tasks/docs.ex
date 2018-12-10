@@ -237,7 +237,7 @@ defmodule Mix.Tasks.Docs do
   @aliases [n: :canonical, f: :formatter, o: :output]
 
   @doc false
-  def run(args, config \\ Mix.Project.config(), generator \\ &ExDoc.generate_docs/3) do
+  def run(args, config \\ Mix.Project.config, generator \\ &ExDoc.generate_docs/3) do
     Mix.Task.run("compile")
 
     {cli_opts, args_, _} = OptionParser.parse(args, aliases: @aliases, switches: @switches)
@@ -263,7 +263,7 @@ defmodule Mix.Tasks.Docs do
   # At most, returns: ["epub", "html"]
   defp get_formatters(options) do
     case Keyword.get_values(options, :formatter) do
-      []     -> Keyword.get(options, :formatters, [ExDoc.Config.default_formatter()])
+      []     -> Keyword.get(options, :formatters, [ExDoc.Config.default_formatter])
       values -> values
     end
   end
@@ -304,12 +304,12 @@ defmodule Mix.Tasks.Docs do
   def normalize_source_beam(options, config) do
     source_beam =
       case Mix.Project.umbrella?(config) do
-        false -> Mix.Project.compile_path()
+        false -> Mix.Project.compile_path
 
         true  -> ignored_apps = Keyword.get(options, :ignore_apps, [])
-                 build        = Mix.Project.build_path()
+                 build        = Mix.Project.build_path
 
-                 for {app, _} <- Mix.Project.apps_paths(), app not in ignored_apps,
+                 for {app, _} <- Mix.Project.apps_paths, app not in ignored_apps,
                    do: Path.join([build, "lib", Atom.to_string(app), "ebin"])
       end
 
@@ -340,7 +340,7 @@ defmodule Mix.Tasks.Docs do
   end
 
   defp get_deps, do:
-    for {key, _} <- Mix.Project.deps_paths(),
+    for {key, _} <- Mix.Project.deps_paths,
         _   = Application.load(key),
         vsn = Application.spec(key, :vsn),
           do: {key, "https://hexdocs.pm/#{key}/#{vsn}/"}
