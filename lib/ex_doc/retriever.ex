@@ -47,7 +47,7 @@ defmodule ExDoc.Retriever do
         end
       end
 
-    ModuleData.generate_node(module, docs_chunk, config)
+    ModuleData.generate_node(module, docs_chunk, config) # then -^ `docs_from_files/3`
   end
 
   defp check_compilation(module) do
