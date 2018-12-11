@@ -34,7 +34,7 @@ defmodule ExDoc.Retriever do
                              else: [])
         |> Enum.sort_by(fn %{group: group, id: id} -> {GroupMatcher.group_index(mod_groups, group), id} end)
 
-  @doc "Get all the information from the module and compile it."
+  @doc "Get module info, then compile module."
   def get_module(module, config) do
     check_compilation(module)
 
