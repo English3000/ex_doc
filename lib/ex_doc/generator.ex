@@ -19,20 +19,17 @@ defmodule ExDoc.NodeGenerator do
     {nested_title,    nested_context} = nesting_info(title, prefixes)
     {function_groups, fn_docs}        = get_docs(data, source, config)
 
-    module_group = GroupMatcher.match_module(groups_for_modules, module, id)
-    docs         = fn_docs ++ get_callbacks(data, source)
-
     %ModuleNode{
       id:              id,
       title:           title,
       nested_title:    nested_title,
       nested_context:  nested_context,
       module:          data.name,
-      group:           module_group,
+      group:           GroupMatcher.match_module(groups_for_modules, module, id),
       type:            data.type,
       deprecated:      metadata[:deprecated],
       function_groups: function_groups,
-      docs:            Enum.sort_by(docs, &{&1.name, &1.id}),
+      docs:            Enum.sort_by(fn_docs ++ get_callbacks(data, source), &{&1.name, &1.id}),
       doc:             moduledoc,
       doc_line:        Map.get(moduledoc, "en"),
       typespecs:       get_types(data, source) |> Enum.sort_by(& &1.id),
@@ -157,6 +154,9 @@ defmodule ExDoc.NodeGenerator do
   end
   defp docstring(doc, _, _, _, _), do: Map.get(doc, "en")
 
+  defp definition_to_callback(:function), do: :callback
+  defp definition_to_callback(:macro),    do: :macrocallback
+
   defp anno_line(line) when is_integer(line), do: line |> abs()
   defp anno_line(line),                       do: line |> :erl_anno.line() |> abs()
 
@@ -198,14 +198,14 @@ defmodule ExDoc.NodeGenerator do
   end
   defp get_callbacks(_, _), do: []
 
-  defp get_callback(callback, source, optional_callbacks, abst_code) do
-    {{kind, name, arity}, anno, _, doc, metadata} = callback
-    actual_def = actual_def(name, arity, kind)
-    doc_line   = anno_line(anno)
+  defp get_callback({{type, name, arity}, anno, _, doc, metadata}, source, optional_callbacks, abst_code) do
+    actual_def   = actual_def(name, arity, type)
+    doc_line     = anno_line(anno)
 
     annotations  = annotations_from_metadata(metadata)
-    annotations_ =
-      if actual_def in optional_callbacks, do: ["optional" | annotations], else: annotations
+    annotations_ = if actual_def in optional_callbacks,
+                     do:   ["optional" | annotations],
+                     else: annotations
 
     {:attribute, anno_, :callback, {^actual_def, specs}} =
       Enum.find(abst_code, &match?({:attribute, _, :callback, {^actual_def, _}}, &1))
@@ -214,20 +214,17 @@ defmodule ExDoc.NodeGenerator do
       id:          "#{name}/#{arity}",
       name:        name,
       arity:       arity,
-      deprecated:  metadata[:deprecated],
+      deprecated:  Keyword.get(metadata, :deprecated),
       doc:         Map.get(doc, "en"),
       doc_line:    doc_line,
-      signature:   get_typespec_signature(hd(specs), arity),
+      signature:   specs |> hd |> get_typespec_signature(arity),
       specs:       Enum.map(specs, &Code.Typespec.spec_to_quoted(name, &1)),
       source_path: source.path,
       source_url:  source_link(source, anno_line(anno_) || doc_line),
-      type:        kind,
+      type:        type,
       annotations: annotations_
     }
   end
-
-  defp definition_to_callback(:function), do: :callback
-  defp definition_to_callback(:macro), do: :macrocallback
 
   defp get_typespec_signature({:when, _, [{:::, _, [{name, meta, args}, _]}, _]}, arity),
     do: Macro.to_string({name, meta, strip_types(args, arity)})
@@ -242,11 +239,9 @@ defmodule ExDoc.NodeGenerator do
     args
     |> Enum.take(-arity)
     |> Enum.with_index()
-    |> Enum.map(fn
-      {{:::, _, [left, _]}, i} -> to_var(left, i)
-      {{:|, _, _}, i} -> to_var({}, i)
-      {left, i} -> to_var(left, i)
-    end)
+    |> Enum.map(fn {{:::, _, [left, _]}, i} -> to_var(left, i)
+                   {{:|, _, _}, i}          -> to_var({}, i)
+                   {left, i}                -> to_var(left, i) end)
   end
 
   defp to_var({name, meta, _}, _) when is_atom(name), do: {name, meta, nil}
@@ -261,54 +256,49 @@ defmodule ExDoc.NodeGenerator do
   defp to_var(atom, _) when is_atom(atom),            do: {:atom,      [], nil}
   defp to_var(_, i),                                  do: {:"arg#{i}", [], nil}
 
-  defp find_module_line(%{abst_code: abst_code, name: name}) do
-    Enum.find_value(abst_code, fn
-      {:attribute, anno, :module, ^name} -> anno_line(anno)
-      _ -> nil
-    end)
-  end
-
   #####################################################################
 
-  defp get_types(module_data = %{docs: docs}, source) do
-    {:docs_v1, _, _, _, _, _, docs} = docs
-
+  defp get_types(%{abst_code: abst_code, docs: {:docs_v1, _, _, _, _, _, docs}}, source), do:
     for {{:type, _, _}, _, _, content, _} = doc <- docs, content != :hidden,
-      do: get_type(doc, source, module_data.abst_code)
-  end
+      do: get_type(doc, source, abst_code)
 
-  defp get_type(type, source, abst_code) do
-    {{_, name, arity}, anno, _, doc, metadata} = type
-    {:attribute, anno_, type, spec} =
-      Enum.find(abst_code, fn
-        {:attribute, _, type, {^name, _, args}} ->
-          type in [:opaque, :type] and length(args) == arity
+  defp get_type({{_, name, arity}, anno, _, doc, metadata}, source, abst_code) do
+    {:attribute, anno_, type, spec} = Enum.find(abst_code, fn
+                                        {:attribute, _, type, {^name, _, args}} ->
+                                          type in [:opaque, :type] and length(args) == arity
 
-        _ -> false
-      end)
-
-    doc_line = anno_line(anno)
-
+                                        _ -> false
+                                      end)
+    doc_line     = anno_line(anno)
     annotations  = annotations_from_metadata(metadata)
-    annotations_ = if type == :opaque, do: ["opaque" | annotations], else: annotations
+    annotations_ = if type == :opaque,
+                     do:   ["opaque" | annotations],
+                     else: annotations
 
     %TypeNode{
-      id: "#{name}/#{arity}",
-      name: name,
-      arity: arity,
-      type: type,
-      spec: spec |> Code.Typespec.type_to_quoted() |> process_type_ast(type),
-      deprecated: metadata[:deprecated],
-      doc: Map.get(doc, "en"),
-      doc_line: doc_line,
-      signature: get_typespec_signature(spec, arity),
+      id:          "#{name}/#{arity}",
+      name:        name,
+      arity:       arity,
+      type:        type,
+      spec:        spec |> Code.Typespec.type_to_quoted |> process_type_ast(type),
+      deprecated:  Map.get(metadata, :deprecated),
+      doc:         if(is_map(doc), do: Map.get(doc, "en")),
+      doc_line:    doc_line,
+      signature:   get_typespec_signature(spec, arity),
       source_path: source.path,
-      source_url: source_link(source, anno_line(anno_) || doc_line),
+      source_url:  source_link(source, anno_line(anno_) || doc_line),
       annotations: annotations_
     }
   end
 
   # Cut off the body of an opaque type while leaving it on a normal type.
   defp process_type_ast({:::, _, [d | _]}, :opaque), do: d
-  defp process_type_ast(ast, _), do: ast
+  defp process_type_ast(ast, _),                     do: ast
+
+  defp find_module_line(%{abst_code: abst_code, name: name}) do
+    Enum.find_value(abst_code, fn
+      {:attribute, anno, :module, ^name} -> anno_line(anno)
+                                       _ -> nil
+    end)
+  end
 end

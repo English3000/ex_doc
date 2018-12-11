@@ -5,23 +5,17 @@ defmodule ExDoc.GroupMatcher do
   @type patterns :: pattern | [pattern]
   @type group_patterns :: keyword(patterns)
 
-  @doc """
-  Finds the index of a given group.
-  """
-  def group_index(groups, group) do
-    Enum.find_index(groups, fn {k, _v} -> k == group end) || -1
-  end
+  @doc "Finds the index of a given group."
+  def group_index(groups, group), do: Enum.find_index(groups, fn {k, _v} -> k == group end) || -1
 
-  @doc """
-  Finds a matching group for the given module name or id.
-  """
+  @doc "Finds a matching group for the given module name or id."
   @spec match_module(group_patterns, module(), String.t()) :: atom() | nil
-  def match_module(group_patterns, module, id) do
-    match_group_patterns(group_patterns, fn pattern ->
+  def match_module(patterns, module, id) do
+    match_group_patterns(patterns, fn pattern ->
       case pattern do
-        %Regex{} = regex -> Regex.match?(regex, id)
+        %Regex{} = regex              -> Regex.match?(regex, id)
         string when is_binary(string) -> id == string
-        atom -> atom == module
+        atom                          -> atom == module
       end
     end)
   end
@@ -41,8 +35,7 @@ defmodule ExDoc.GroupMatcher do
 
   defp match_group_patterns(group_patterns, matcher) do
     Enum.find_value(group_patterns, fn {group, patterns} ->
-      patterns = List.wrap(patterns)
-      Enum.any?(patterns, matcher) && group
+      group && List.wrap(patterns) |> Enum.any?(matcher)
     end)
   end
 end

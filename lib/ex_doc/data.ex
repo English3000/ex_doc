@@ -63,7 +63,7 @@ defmodule ExDoc.ModuleData do
 
     case :beam_lib.chunks(binary, [:abstract_code]) do
       {:ok, {_, [{:abstract_code, {_vsn, abstract_code}}]}} -> abstract_code
-      _otherwise                                            -> []
+                                                          _ -> []
     end
   end
 end
