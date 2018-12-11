@@ -79,7 +79,7 @@ defmodule ExDoc.NodeGenerator do
   defp get_docs(
     data = %{type: type, docs: {:docs_v1, _, _, _, _, _, fn_docs}},
     source,
-    config = %Config{groups_for_functions: fn_groups}
+    %Config{groups_for_functions: fn_groups}
   ) do
     groups = [{"Functions", fn _ -> true end}] ++
                Enum.map(fn_groups, fn {group, filter} ->
@@ -105,6 +105,7 @@ defmodule ExDoc.NodeGenerator do
     source,
     data = %{impls: impls, specs: specs},
     groups) do
+    doc_line     = anno_line(anno)
     annotations  = annotations_from_metadata(metadata)
     annotations_ =
       case {type, name, arity} do
@@ -121,8 +122,8 @@ defmodule ExDoc.NodeGenerator do
       arity:       arity,
       deprecated:  metadata[:deprecated],
       doc:         docstring(doc, name, arity, type, Map.fetch(impls, {name, arity})),
-      doc_line:    anno_line(anno),
-      defaults:    get_defaults(name, arity, metadata[:defaults] || 0)),
+      doc_line:    doc_line,
+      defaults:    get_defaults(name, arity, metadata[:defaults] || 0),
       signature:   Enum.join(signature, " "),
       specs:       specs |> Map.get(actual_def, []) |> get_specs(type, name),
       source_path: source.path,

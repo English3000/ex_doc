@@ -20,34 +20,28 @@ defmodule ExDoc.Retriever do
                    else: "*.beam")
         |> Path.expand(dir)
         |> Path.wildcard()
-        |> docs_from_files(config) # Used in tests.
+        |> docs_from_files(config) # Used by tests.
   def docs_from_files(files, config = %Config{groups_for_modules: mod_groups}),
     do: files
         |> Enum.map(fn name -> name
                                |> Path.basename(".beam")
                                |> String.to_atom() end)
-        |> Enum.flat_map(&get_module(&1, config))
+        |> Enum.flat_map(& if function_exported?(&1, :__info__, 1),
+                             do:   get_module(&1, config),
+                             else: [])
         |> Enum.sort_by(fn %{group: group, id: id} -> {GroupMatcher.group_index(mod_groups, group), id} end)
 
   @doc "Get all the information from the module and compile it."
-  def get_module(:elixir_bootstrap, _config), do: []
   def get_module(module, config) do
     check_compilation(module)
 
-    docs_chunk =
-      if !function_exported?(module, :__info__, 1) do
-        false
-      else
-        case Code.fetch_docs(module) do
-          {:docs_v1, _, _, _, :hidden, _, _}  -> false
-          {:docs_v1, _, _, _, _, _, _} = docs -> docs
-          {:error, reason}                    -> raise Error, "module #{inspect(module)} " <>
-                                                              "was not compiled with flag --docs: " <>
-                                                              inspect(reason)
-        end
-      end
-
-    ModuleData.generate_node(module, docs_chunk, config) # then -^ `docs_from_files/3`
+    case Code.fetch_docs(module) do
+      {:error, reason}                    -> raise Error, "module #{inspect(module)} " <>
+                                                          "was not compiled with flag --docs: " <>
+                                                          inspect(reason)
+      {:docs_v1, _, _, _, :hidden, _, _}  -> []
+      {:docs_v1, _, _, _, _, _, _} = docs -> ModuleData.generate_node(module, docs, config)
+    end
   end
 
   defp check_compilation(module) do
