@@ -9,7 +9,7 @@ defmodule ExDoc.Retriever do
   alias ExDoc.{Config, GroupMatcher, ModuleData, ModuleNode}
   alias ExDoc.Retriever.Error
 
-  @doc "Extract docs from all modules in the specified directory/-ies."
+  @doc "Extract modules' docs from the specified directory/-ies."
   @spec docs_from_dir(Config.t) :: [ModuleNode.t]
   def docs_from_dir(config = %Config{source_beam: dirs}) when is_list(dirs),
     do: Enum.flat_map(dirs, &docs_from_dir(%{config | source_beam: &1}))
@@ -21,6 +21,9 @@ defmodule ExDoc.Retriever do
         |> Path.expand(dir)
         |> Path.wildcard()
         |> docs_from_files(config) # Used by tests.
+        
+  @doc "Extract modules' docs from the specified list of files."
+  @spec docs_from_files([Path.t], Config.t) :: [ModuleNode.t]
   def docs_from_files(files, config = %Config{groups_for_modules: mod_groups}),
     do: files
         |> Enum.map(fn name -> name
