@@ -1,62 +1,34 @@
 defmodule ExDoc.ModuleData do
   @moduledoc false
 
-  def generate_node(module, docs, config) do
-    type = get_type(module)
-    data = %{
+  def generate_node(:impl, _, _, _),             do: []
+  def generate_node(type, docs, module, config), do: [%{
       name:      module,
       type:      type,
-      specs:     get_specs(module),
+      specs:     module |> Code.Typespec.fetch_specs |> get_specs(),
       impls:     get_impls(module),
       abst_code: get_abstract_code(module),
       docs:      docs
-    }
-
-    case type do
-      :impl -> []
-      _     -> [ExDoc.NodeGenerator.run(module, data, config)]
-    end
-  end
-
-  def get_type(module) do
-    cond do
-      function_exported?(module, :__struct__, 0) and
-        match?(%{__exception__: true}, module.__struct__)      -> :exception
-
-      function_exported?(module, :__protocol__, 1)             -> :protocol
-      function_exported?(module, :__impl__, 1)                 -> :impl
-      function_exported?(module, :behaviour_info, 1)           -> :behaviour
-
-      match?("Elixir.Mix.Tasks." <> _, Atom.to_string(module)) -> :task
-      true                                                     -> :module
-    end
-  end
+    } |> ExDoc.NodeGenerator.run(module, config)]
 
   # Returns map :: {name, arity} => spec
-  defp get_specs(module) do
-    case Code.Typespec.fetch_specs(module) do
-      {:ok, specs} -> Map.new(specs)
-      :error       -> %{}
-    end
-  end
+  defp get_specs(:error),       do: %{}
+  defp get_specs({:ok, specs}), do: Map.new(specs)
 
   # Returns map :: {name, arity} => behaviour
   defp get_impls(module), do:
-    for behaviour <- behaviours_implemented_by(module),
-        callback  <- callbacks_defined_by(behaviour),
+    for behaviour <- module.module_info(:attributes)
+                     |> Keyword.get_values(:behaviour)
+                     |> List.flatten(),
+
+        callback  <- behaviour
+                     |> Code.Typespec.fetch_callbacks
+                     |> callbacks_defined_by(),
+
           do: {callback, behaviour}, into: %{}
 
-  defp behaviours_implemented_by(module), do:
-    for {:behaviour, list} <- module.module_info(:attributes),
-        behaviour <- list,
-          do: behaviour
-
-  defp callbacks_defined_by(module) do
-    case Code.Typespec.fetch_callbacks(module) do
-      {:ok, callbacks} -> Keyword.keys(callbacks)
-      :error           -> []
-    end
-  end
+  defp callbacks_defined_by(:error),           do: []
+  defp callbacks_defined_by({:ok, callbacks}), do: Keyword.keys(callbacks)
 
   defp get_abstract_code(module) do
     {^module, binary, _file} = :code.get_object_code(module)
