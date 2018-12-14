@@ -1,88 +1,74 @@
 defmodule ExDoc.Formatter.HTML do
-  @moduledoc """
-  Generates HTML documentation for Elixir projects.
-  """
+  @moduledoc "Generates HTML documentation for Elixir projects."
 
   alias __MODULE__.{Assets, Autolink, Templates}
-  alias ExDoc.{Markdown, GroupMatcher}
+  alias ExDoc.{Config, GroupMatcher, Markdown, ModuleNode}
 
-  @main "api-reference"
+  @assets_dir "assets"
+  @error ~S("main" cannot be set to "index", otherwise it will recursively link to itself)
 
-  @doc """
-  Generate HTML documentation for the given modules.
-  """
-  @spec run(list, ExDoc.Config.t()) :: String.t()
-  def run(project_nodes, config) when is_map(config) do
-    config = normalize_config(config)
-    config = %{config | output: Path.expand(config.output)}
+  @doc "Generate HTML docs for given modules."
+  @spec run([ModuleNode.t], Config.t) :: String.t
+  def run(_nodes, %Config{main: "index"}), do: raise ArgumentError, message: @error
+  def run(nodes, config = %Config{api_reference: api_ref}) do
+    config_      = config
+                   |> Map.update!(:main, &(&1 || "api-reference")) )
+                   |> normalize_config
+                   |> Map.update!(:output, &Path.expand(&1))
 
-    build = Path.join(config.output, ".build")
-    output_setup(build, config)
-
-    autolink = Autolink.compile(project_nodes, ".html", config)
-    linked = Autolink.all(project_nodes, autolink)
-
-    nodes_map = %{
-      modules: filter_list(:module, linked),
+    build        = Path.join(config_.output, ".build")
+    File.exists?(build) |> output_setup(build, config_.output)
+    autolink     = Autolink.compile(nodes, ".html", config_)
+    linked       = Autolink.all(nodes, autolink)
+    nodes_map    = %{
+      modules:    filter_list(:module, linked),
       exceptions: filter_list(:exception, linked),
-      tasks: filter_list(:task, linked)
+      tasks:      filter_list(:task, linked)
     }
+    extras       = build_extras(config_, autolink)
+    extras_      = if api_ref,
+                     do:   [build_api_reference(nodes_map, config_) | extras],
+                     else: extras
 
-    extras =
-      if config.api_reference do
-        [
-          build_api_reference(nodes_map, config)
-          | build_extras(config, autolink)
-        ]
-      else
-        build_extras(config, autolink)
-      end
+    generate_sidebar_items(nodes_map, extras_, config_) ++
+    generate_extras(nodes_map, extras_, config_) ++
+    generate_logo(config_) ++
+    generate_search(nodes_map, config_) ++
+    generate_not_found(nodes_map, config_) ++
+    generate_list(nodes_map.modules, nodes_map, config_) ++
+    generate_list(nodes_map.exceptions, nodes_map, config_) ++
+    generate_list(nodes_map.tasks, nodes_map, config_) ++
+    generate_index(config_)
+    |> generate_build(config_, build)
 
-    assets_dir = "assets"
-    static_files = generate_assets(config, assets_dir, default_assets(config))
-
-    generated_files =
-      generate_sidebar_items(nodes_map, extras, config) ++
-        generate_extras(nodes_map, extras, config) ++
-        generate_logo(assets_dir, config) ++
-        generate_search(nodes_map, config) ++
-        generate_not_found(nodes_map, config) ++
-        generate_list(nodes_map.modules, nodes_map, config) ++
-        generate_list(nodes_map.exceptions, nodes_map, config) ++
-        generate_list(nodes_map.tasks, nodes_map, config) ++ generate_index(config)
-
-    generate_build(static_files ++ generated_files, build)
-    config.output |> Path.join("index.html") |> Path.relative_to_cwd()
+    config_.output |> Path.join("index.html") |> Path.relative_to_cwd()
   end
 
-  defp normalize_config(%{main: "index"}) do
-    raise ArgumentError,
-      message: ~S("main" cannot be set to "index", otherwise it will recursively link to itself)
+  defp output_setup(true, build, output) do
+    build
+    |> File.read!()
+    |> String.split("\n", trim: true)
+    |> Enum.map(&Path.join(output, &1))
+    |> Enum.each(&File.rm/1)
+
+    File.rm(build)
+  end
+  defp output_setup(false, _build, output) do
+    File.rm_rf!(output)
+    File.mkdir_p!(output)
   end
 
-  defp normalize_config(%{main: main} = config) do
-    %{config | main: main || @main}
-  end
+  defp generate_build(files, config, build),
+    do: config
+        |> generate_assets(default_assets(config))
+        |> Kernel.++(files)
+        |> Enum.map(files, &[&1, "\n"])
+        |> fn files -> File.write!(build, files) end.()
 
-  defp output_setup(build, config) do
-    if File.exists?(build) do
-      build
-      |> File.read!()
-      |> String.split("\n", trim: true)
-      |> Enum.map(&Path.join(config.output, &1))
-      |> Enum.each(&File.rm/1)
-
-      File.rm(build)
-    else
-      File.rm_rf!(config.output)
-      File.mkdir_p!(config.output)
-    end
-  end
-
-  defp generate_build(files, build) do
-    entries = Enum.map(files, &[&1, "\n"])
-    File.write!(build, entries)
-  end
+  @doc false
+  def generate_assets(config, defaults),
+    do: write_default_assets(config, defaults) ++
+        copy_assets(config, @assets_dir)
 
   defp generate_index(config) do
     index_file = "index.html"
@@ -135,11 +121,6 @@ defmodule ExDoc.Formatter.HTML do
       File.write!(output, html)
       filename
     end)
-  end
-
-  @doc false
-  def generate_assets(config, assets_dir, defaults) do
-    write_default_assets(config, defaults) ++ copy_assets(config, assets_dir)
   end
 
   defp copy_assets(config, assets_dir) do
@@ -285,28 +266,23 @@ defmodule ExDoc.Formatter.HTML do
     |> String.downcase()
   end
 
-  @doc """
-  Generates the logo from config into the given directory
-  and adjusts the logo config key.
-  """
-  def generate_logo(_dir, %{logo: nil}) do
-    []
-  end
-
-  def generate_logo(dir, %{output: output, logo: logo}) do
-    extname =
-      logo
-      |> Path.extname()
-      |> String.downcase()
+  @doc "Generates logo from config, puts it in assets directory, & adjusts logo's config key."
+  def generate_logo(%{logo: nil}), do: []
+  def generate_logo(%{output: output, logo: logo}) do
+    extname = logo
+              |> Path.extname
+              |> String.downcase()
 
     if extname in ~w(.png .jpg .svg) do
-      filename = Path.join(dir, "logo#{extname}")
-      target = Path.join(output, filename)
-      File.mkdir_p!(Path.dirname(target))
+      filename = Path.join(@assets_dir, "logo#{extname}")
+      target   = Path.join(output, filename)
+
+      target |> Path.dirname |> File.mkdir_p!()
       File.copy!(logo, target)
+
       [filename]
     else
-      raise ArgumentError, "image format not recognized, allowed formats are: .jpg, .png"
+      raise ArgumentError, "image format not recognized, allowed formats are: .jpg, .png, .svg"
     end
   end
 

@@ -66,42 +66,40 @@ defmodule ExDoc.Formatter.HTML.Autolink do
     timeout: 0
   ]
 
-  kernel_exports = Kernel.__info__(:functions) ++ Kernel.__info__(:macros)
+  kernel_exports       = Kernel.__info__(:functions) ++ Kernel.__info__(:macros)
   special_form_exports = Kernel.SpecialForms.__info__(:macros)
 
-  @basic_type_strings for {f, a} <- @basic_types, do: "t:#{f}/#{a}"
-  @built_in_type_strings for {f, a} <- @built_in_types, do: "t:#{f}/#{a}"
-  @kernel_function_strings for {f, a} <- kernel_exports, do: "#{f}/#{a}"
-  @special_form_strings for {f, a} <- special_form_exports, do: "#{f}/#{a}"
+  @basic_type_strings      for {f, a} <- @basic_types,    do: "t:#{f}/#{a}"
+  @built_in_type_strings   for {f, a} <- @built_in_types, do: "t:#{f}/#{a}"
+  @kernel_function_strings for {f, a} <- kernel_exports,       do: "#{f}/#{a}"
+  @special_form_strings    for {f, a} <- special_form_exports, do: "#{f}/#{a}"
 
-  @doc """
-  Compiles information used during autolinking.
-  """
-  def compile(modules, extension, config) do
-    aliases = Enum.map(modules, & &1.module)
+  @doc "Compiles information used during autolinking."
+  def compile(modules, extension, %Config{deps: deps, skip_undefined_reference_warnings_on: skip}) do
+    aliases      = Enum.map(modules, & &1.module)
     modules_refs = Enum.map(aliases, &inspect/1)
 
     types_refs =
-      for module <- modules,
-          type <- module.typespecs,
-          do: "t:" <> module.id <> "." <> type.id
+      for %{id: m_id, typespecs: typespecs} <- modules,
+          %{id: t_id}                       <- typespecs,
+            do: "t:#{m_id}.#{t_id}"
 
     docs_refs =
-      for module <- modules,
-          doc <- module.docs,
+      for %{docs: docs, id: m_id} <- modules,
+          doc <- docs,
           prefix = doc_prefix(doc),
           entry <- [doc.id | doc.defaults],
-          do: prefix <> module.id <> "." <> entry
+            do: prefix <> m_id <> "." <> entry
 
-    lib_dirs = config.deps ++ default_lib_dirs()
+    lib_dirs = deps ++ default_lib_dirs()
 
     %{
-      aliases: aliases,
-      docs_refs: docs_refs ++ types_refs,
-      extension: extension,
-      lib_dirs: lib_dirs,
+      aliases:      aliases,
+      docs_refs:    docs_refs ++ types_refs,
+      extension:    extension,
+      lib_dirs:     lib_dirs,
       modules_refs: modules_refs,
-      skip_undefined_reference_warnings_on: config.skip_undefined_reference_warnings_on
+      skip_undefined_reference_warnings_on: skip
     }
   end
 
